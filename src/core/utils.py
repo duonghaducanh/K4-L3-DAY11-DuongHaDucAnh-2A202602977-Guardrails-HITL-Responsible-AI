@@ -1,11 +1,28 @@
 """
 Lab 11 — Helper Utilities
 """
+import asyncio
 from core.config import get_llm_provider, PROVIDER_OPENROUTER  # noqa: F401
 from core.openai_runtime import OpenAIRunner
 
 
 async def chat_with_agent(agent, runner, user_message: str, session_id=None):
+    """Retry transient provider errors, keeping unsuccessful attempts out of evidence."""
+    for attempt in range(3):
+        try:
+            return await _chat_once(agent, runner, user_message, session_id=session_id)
+        except Exception as exc:
+            code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+            # Quota failures require a quota/billing change or a later run;
+            # rapidly retrying 429 burns requests without resolving the cause.
+            if code not in (500, 502, 503, 504) or attempt == 2:
+                raise
+            delay = 2 ** (attempt + 1)
+            print(f"Provider returned {code}; retry {attempt + 1}/2 in {delay}s.", flush=True)
+            await asyncio.sleep(delay)
+
+
+async def _chat_once(agent, runner, user_message: str, session_id=None):
     """Send a message to the agent and get the response.
 
     Works with OpenAIRunner (OpenAI Red / OpenRouter Blue) and Google ADK (Gemini Red).

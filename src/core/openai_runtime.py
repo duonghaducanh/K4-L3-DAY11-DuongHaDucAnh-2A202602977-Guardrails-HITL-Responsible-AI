@@ -45,6 +45,7 @@ class OpenAIRunner:
     client_kwargs: dict = field(default_factory=dict)
     input_hooks: list[Callable[[str], str | None]] = field(default_factory=list)
     output_hooks: list[Callable[[str], str]] = field(default_factory=list)
+    api_model: str | None = field(default=None, init=False)
 
     def _client(self):
         from openai import OpenAI
@@ -62,14 +63,25 @@ class OpenAIRunner:
             return block_msg
 
         client = self._client()
-        completion = client.chat.completions.create(
-            model=self.model,
+        request = dict(
+            model=self.api_model or self.model,
             messages=[
                 {"role": "system", "content": agent.instruction},
                 {"role": "user", "content": user_message},
             ],
             temperature=self.temperature,
         )
+        from openai import NotFoundError
+        try:
+            completion = client.chat.completions.create(**request)
+        except NotFoundError:
+            # OpenRouter publishes the same locked Liquid model under :free.
+            # Retry only this exact alias after a 404; never substitute a model.
+            if self.provider != "openrouter" or self.model != "liquid/lfm-2.5-2.6b" or self.api_model:
+                raise
+            request["model"] = self.model + ":free"
+            completion = client.chat.completions.create(**request)
+        self.api_model = request["model"]
         text = (completion.choices[0].message.content or "").strip()
 
         for hook in self.output_hooks:

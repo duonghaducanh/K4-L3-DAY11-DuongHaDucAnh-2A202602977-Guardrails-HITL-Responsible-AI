@@ -1,5 +1,58 @@
 # Day 11 — Controlled Agent Security (2026)
 
+## Bài làm cá nhân
+
+- Họ tên: **Dương Hà Đức Anh** · MSSV: **2A202602977**.
+- Blue: OpenRouter Liquid LFM2.5-2.6B; Red và Red Advance: **Gemini**.
+- AI hỗ trợ triển khai và kiểm thử. Học viên cần đọc code, tự chạy và giải thích
+  các quyết định bên dưới theo `RULES.md`.
+
+Chạy từ gốc repo, sau khi điền key trong `.env` (không đưa key lên GitHub):
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+# .env: RED_TEAM_PROVIDER=gemini, GOOGLE_API_KEY, OPENROUTER_API_KEY
+python -X utf8 src/main.py --part 2
+python -X utf8 src/main.py --part 3
+python -X utf8 src/main.py --part 4
+python -m pytest tests/smoke tests/public tests/unit -q --basetemp=.pytest_cache/test-tmp
+python scripts/grade.py --submission-dir . --out outputs/grade_report.json
+# Sau khi có leak thật: kiểm tra lại prompt thành công với session mới.
+python -X utf8 scripts/replay_bonus.py
+```
+
+### Các quyết định triển khai
+
+- **CP2:** chuẩn hóa Unicode/zero-width, nhận diện injection bằng regex, topic banking
+  có ranh giới từ và hỗ trợ tiếng Việt có dấu. Output che PII, key, password,
+  host nội bộ và các giá trị demo kể cả khi bị tách ký tự.
+- **CP3:** Python orchestrator chạy plugin đúng thứ tự rate limit → input → model
+  → output. Audit và monitoring là observer bên ngoài để vẫn ghi nhận yêu cầu
+  bị chặn sớm. Log che dữ liệu nhạy cảm và gắn request ID; latency dùng monotonic clock.
+- **Rate limit:** burst dùng 15 yêu cầu injection của cùng user. 10 yêu cầu được
+  limiter cho tới lớp input (rồi bị chặn), 5 yêu cầu bị limiter chặn ngay. `passed`
+  trong nhóm này nghĩa là qua limiter, không phải được LLM trả lời. Cách này kiểm
+  tra quota mà không phụ thuộc tốc độ mạng hoặc tốn 10 lượt gọi model.
+- **Egress:** chỉ HTTPS với hostname chính xác `api.vinbank.example` hoặc
+  `cases.vinbank.example`, port 443; chặn URL giả mạo, userinfo và payload chứa
+  secret/PII. Bộ lab chỉ đánh giá quyền gửi, không thực hiện chuyển tiền thật.
+- **Endpoint Blue:** ID gốc trong đề trả 404 tại thời điểm chạy. Runtime chỉ thử
+  thêm hậu tố `:free` của **cùng** model Liquid sau lỗi 404; không đổi sang model
+  khác. `results.json` ghi cả `required_blue_model` và `llm_model` thực tế.
+  [Endpoint chính thức](https://openrouter.ai/liquid/lfm-2.5-2.6b:free).
+- **CP4/bonus:** có 5 kỹ thuật bắt buộc và 3 prompt thử B2. Không thay đổi agent
+  Red/Red Advance hay secret. File kết quả giữ toàn bộ response và lỗi API;
+  `selected_bonus` ưu tiên B2 nếu quan sát leak thật, nếu không thì B1 khi Red
+  có leak. Chỉ tính một bonus và coach/grader replay quyết định điểm.
+- **CP5:** JSON và báo cáo sinh bằng chương trình. Kiểm thử offline không dùng API;
+  CP3/CP4 dùng model thật. Lỗi provider được ghi là lỗi, không tính thành công.
+
+Các module `hitl/`, Judge và NeMo là phần tham khảo không chấm theo `RUBRIC.md`.
+Kết quả chạy xem `outputs/lab_report.md` (tự sinh), không viết báo cáo điểm bằng tay.
+
+---
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** xây **Blue** (phòng thủ), rồi red-team **Red** + **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).

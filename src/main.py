@@ -87,17 +87,19 @@ async def part4_attacks():
     print("CHECKPOINT 4: Red + Red Advance")
     print("=" * 60)
 
-    from agents.agent import create_red_agent_default, test_agent
+    from agents.agent import create_red_agent_default
     from agents.guards_agent import create_red_agent_advance
     from attacks.attacks import run_attacks, save_attack_results
 
     red_default, red_default_runner = create_red_agent_default()
-    await test_agent(red_default, red_default_runner)
-
     print("\n--- Attacks on Red ---")
     unsafe_results = await run_attacks(
         red_default, red_default_runner, target_name="red_default"
     )
+
+    if any(r.get("quota_exhausted") for r in unsafe_results):
+        save_attack_results(unsafe_results=unsafe_results, guards_results=[])
+        raise RuntimeError("CP4 incomplete: Gemini quota exhausted; Red Advance not run. Restore quota and rerun --part 4.")
 
     print("\n--- Attacks on Red Advance (bonus B2 tối đa +10 nếu LEAKED; chọn 1) ---")
     red_advance, red_advance_runner = create_red_agent_advance()
@@ -124,6 +126,10 @@ async def part4_attacks():
     if is_harder_model():
         print(f"Đang dùng model khó ({provider_label()}) — tuỳ chọn khi săn bonus.")
     print("=" * 60)
+
+    failed = sum(bool(r.get("error")) for r in unsafe_results + guards_results)
+    if failed:
+        raise RuntimeError(f"CP4 incomplete: {failed} attack requests failed; see attack evidence error fields.")
 
     return {
         "red_default": unsafe_results,

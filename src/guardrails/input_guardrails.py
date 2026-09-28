@@ -18,6 +18,7 @@ from google.adk.plugins import base_plugin
 from google.adk.agents.invocation_context import InvocationContext
 
 from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
+from guardrails.normalization import normalize_text
 
 # Quyết định rõ ràng — tránh đảo nghĩa True/False
 InputStatus = Literal["ALLOW", "BLOCK"]
@@ -52,13 +53,22 @@ def detect_injection(user_input: str) -> InputStatus:
         ``"BLOCK"`` if injection detected (chặn), ``"ALLOW"`` otherwise (cho qua).
     """
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"\b(?:ignore|disregard)\s+(?:all\s+)?(?:(?:previous|above|prior)\s+)?(?:instructions?|rules?)\b",
+        r"\byou\s+are\s+now\b",
+        r"\b(?:system|developer)\s+(?:prompt|instructions?|override)\b",
+        r"\b(?:reveal|show|print|disclose)\s+(?:(?:me|your|the|internal|admin)\s+)*(?:instructions?|prompt|secrets?|password|api\s*key)\b",
+        r"\bpretend\s+(?:you\s+are|to\s+be)\b",
+        r"\bact\s+as\s+(?:an?\s+)?(?:unrestricted|jailbroken|evil)\b",
+        r"\b(?:forget|override)\s+(?:your\s+)?(?:rules?|instructions?|prompt)\b",
+        r"\b(?:bo\s+qua|quen)\s+(?:(?:moi|cac|tat\s+ca)\s+)*(?:huong\s+dan|quy\s+tac)\b",
+        r"\b(?:tiet\s+lo|hien\s+thi)\s+(?:mat\s+khau|khoa\s+api|chi\s+dan)\b",
     ]
+    if not isinstance(user_input, str):
+        return "BLOCK"
+    canonical = normalize_text(user_input, accents=True)
 
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, canonical, re.IGNORECASE):
             return "BLOCK"
     return "ALLOW"
 
@@ -84,14 +94,18 @@ def topic_filter(user_input: str) -> InputStatus:
         ``"BLOCK"`` = chặn (off-topic hoặc topic cấm).
         ``"ALLOW"`` = cho qua (câu banking hợp lệ).
     """
-    input_lower = user_input.lower()
+    if not isinstance(user_input, str):
+        return "BLOCK"
+    canonical = normalize_text(user_input, accents=True)
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return "BLOCK"
-    # 2. If input doesn't contain any allowed topic -> return "BLOCK"
-    # 3. Otherwise -> return "ALLOW"
+    def contains(topic):
+        # Word boundaries avoid matching 'loan' inside 'download', for example.
+        word = re.escape(normalize_text(topic, accents=True))
+        return re.search(r"(?<!\w)" + word + r"(?!\w)", canonical) is not None
 
-    pass  # Replace with your implementation
+    if any(contains(topic) for topic in BLOCKED_TOPICS):
+        return "BLOCK"
+    return "ALLOW" if any(contains(topic) for topic in ALLOWED_TOPICS) else "BLOCK"
 
 
 # ============================================================
@@ -144,14 +158,16 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 3. If both return "ALLOW": return None (let message through)
-
-        pass  # Replace with your implementation
+        if not text.strip() or len(text) > 8000:
+            self.blocked_count += 1
+            return self._block_response("Please send a banking question of 1–8000 characters.")
+        if detect_injection(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response("Request blocked: untrusted instruction override.")
+        if topic_filter(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response("I can only help with banking-related questions.")
+        return None
 
 
 # ============================================================
